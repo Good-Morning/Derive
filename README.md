@@ -2,7 +2,7 @@
 One more progam[me] for differentiation.
 
 
-A single file - no issues with compilation (i hope).
+A single file - no issues with compilation (I hope).
 
 'windows.h' - was used to set position of cursor (void locate(int, int) - is not used now).
 
