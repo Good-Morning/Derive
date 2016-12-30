@@ -1,3 +1,6 @@
+//used to be 3 different files... 
+//with some exceptions no header - 'int main(void)' - at the bottom
+
 #include <iostream>
 #include <string>
 #include <vector>
