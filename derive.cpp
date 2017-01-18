@@ -1,12 +1,10 @@
-//used to be 3 different files... 
-//with some exceptions no header - 'int main(void)' - at the bottom
-
 #include <iostream>
 #include <string>
 #include <vector>
 #include <map>
 #include <algorithm>
 #include <fstream>
+//#include <cmath>
 #ifdef WIN32
 #include <windows.h>
 #endif
@@ -37,16 +35,28 @@ void deb(std::string st){
 }
 #endif
 
-std::string itoa(int x){
+std::string mak__itoa(int x){
+	if (x == 0){
+		return "0";
+	}
 	bool sign = x < 0;
 	if (sign){ x = -x; }
-	std::string temp = std::string(log10(x)+1, ' ');
-	itoa(x, &temp[0], 10);
+	std::string temp;
+	temp.reserve(128);
+	while (x){
+		int c = x % 10;
+		temp = (char)('0' + c) + temp;
+		x /= 10;
+	}
 	if (sign) { temp = '-' + temp; }
 	return temp;
 }
 
 class Node;
+union assemblerMagic{
+	Node* p;
+	int* i;
+};
 typedef float worktype;
 typedef std::pair<int, std::vector<Node*(*)(std::string)>> OpNode;
 class Node{
@@ -71,7 +81,7 @@ public:
 	}
 	static void addNewOperation(int priority, Node*(*func)(std::string)){
 #if debug
-		deb("adding:  " + itoa(priority) + "  " + itoa((int)func), 1);
+		deb("adding:  " + mak__itoa(priority) + "  " + mak__itoa((int)func), 1);
 #endif
 		if (priority < 0) { priority += 1024; }
 		dict[priority].second.push_back(func);
@@ -95,13 +105,24 @@ public:
 	static int initialization();
 	Node(){}
 	worktype virtual calculate(int) = 0;
+	bool operator==(char c){
+		assemblerMagic magic;
+		magic.p = this;
+		return *(magic.i) == *(delegates[c].i);
+	}
+	bool operator!=(char c){
+		assemblerMagic magic;
+		magic.p = this;
+		return *(magic.i) != *(delegates[c].i);
+	}
 	virtual bool valid() = 0;
 	virtual Node* derive() = 0;
 	virtual Node* copy() = 0;
-	virtual Node* simplify() = 0; // not implemented
+	virtual Node* simplify() = 0;
 	virtual void draw(int, int) = 0;
 	virtual void print() = 0;
 	virtual ~Node(){}
+	static assemblerMagic delegates[256];
 	static std::vector<bool> notOperation;
 	static std::map<char, std::string> equels;
 	static std::vector<OpNode> dict;
@@ -114,6 +135,7 @@ public:
 char Node::sign = '_';
 char Node::brAt = '@';
 int Node::position;
+assemblerMagic Node::delegates[256];
 std::map<char, Node*(*)(Node*, Node*)> Node::derivationBin;
 std::map<char, Node*(*)(Node*)> Node::derivationUno;
 std::map<char, Node*(*)(Node*, Node*)> Node::simplifictionBin;
@@ -210,10 +232,16 @@ public:
 		std::cout << ')';
 	}
 	Node* simplify(){
-		return simplifictionBin[IdChar](pointer0, pointer1);
+		Node* p0 = pointer0->simplify(), *p1 = pointer1->simplify();
+		Node* t = simplifictionBin[IdChar](p0, p1);
+		if (t) { return t; }
+		else { return copy(p0, p1); }
 	}
 	Node* derive(){
 		return derivationBin[IdChar](pointer0, pointer1);
+	}
+	Node* copy(Node* p0, Node* p1){
+		return new Op<IdChar, func>(p0, p1);
 	}
 	Node* copy(){
 		Op<IdChar, func>* res = new Op<IdChar, func>;
@@ -272,10 +300,16 @@ public:
 		std::cout << ')';
 	}
 	Node* simplify(){
-		return simplifictionUno[IdChar](pointer0);
+		Node* p0 = pointer0->simplify();
+		Node* t = simplifictionUno[IdChar](p0);
+		if (t) { return t; }
+		else { return copy(p0); }
 	}
 	Node* derive(){
 		return derivationUno[IdChar](pointer0);
+	}
+	Node* copy(Node* p0){
+		return new UOp<IdChar, func>(p0);
 	}
 	Node* copy(){
 		UOp<IdChar, func>* res = new UOp<IdChar, func>;
@@ -326,6 +360,13 @@ public:
 		if (pointer0) return pointer0->valid();
 		return false;
 	}
+	Node* simplify(){
+		Node* p0 = pointer0->simplify();
+		if (*p0 != '+' && *p0 != '-' && *p0 != '*' && *p0 != '/' && *p0 != '^'){
+			return p0;
+		}
+		return new Bracket(p0);
+	}
 	Node* derive(){
 		Bracket* res = new Bracket;
 		res->pointer0 = pointer0->derive();
@@ -336,7 +377,7 @@ public:
 		res->pointer0 = pointer0->copy();
 		return res;
 	}
-};
+} aBracket;
 
 class num : public uno{
 public:
@@ -371,13 +412,16 @@ public:
 	void print(){
 		std::cout << data;
 	}
+	Node* simplify(){
+		return copy();
+	}
 	Node* derive(){
 		return new num(0);
 	}
 	Node* copy(){
 		return new num(data);
 	}
-};
+} aNum;
 
 class e :public uno{
 public:
@@ -401,6 +445,9 @@ public:
 		return new e();
 	}
 	e(){}
+	Node* simplify(){
+		return copy();
+	}
 	worktype calculate(int x){
 		return 2.718282051996489;
 	}
@@ -417,7 +464,7 @@ public:
 	Node* copy(){
 		return new e();
 	}
-};
+} aE;
 
 class var :public uno {
 public:
@@ -463,13 +510,16 @@ public:
 	void print(){
 		std::cout << d;
 	}
+	Node* simplify(){
+		return copy();
+	}
 	Node* derive(){
 		return new num(1);
 	}
 	Node* copy(){
 		return new var(d);
 	}
-};
+} aVar;
 
 worktype sum(worktype a, worktype b){
 	return a + b;
@@ -487,6 +537,19 @@ worktype mns(worktype a){
 	return -a;
 }
 
+#ifndef WIN32
+//fuck linking
+worktype  cos(worktype a, worktype b){ return 0.0; }
+worktype  sin(worktype a, worktype b){ return 0.0; }
+worktype  tan(worktype a, worktype b){ return 0.0; }
+worktype tanh(worktype a, worktype b){ return 0.0; }
+worktype asin(worktype a, worktype b){ return 0.0; }
+
+worktype  pow(worktype a, worktype b){ return 0.0; }
+worktype atan(worktype a, worktype b){ return 0.0; }
+worktype  log(worktype a, worktype b){ return 0.0; }
+#endif
+
 int initialization = Node::initialization();
 
 int Node::initialization(){
@@ -498,28 +561,44 @@ int Node::initialization(){
 	addNewOperation(1, Op<'-', dif>::parse);
 	addNewOperation(2, Op<'*', mul>::parse);
 	addNewOperation(2, Op<'/', div>::parse);
-	addNewOperation(4, Op<'^', pow>::parse);
-	addNewOperation(3, UOp<'c', cos>::parse);
-	addNewOperation(3, UOp<'s', sin>::parse);
-	addNewOperation(3, UOp<'t', tan>::parse);
-	addNewOperation(3, UOp<'C', tanh>::parse);
-	addNewOperation(3, UOp<'S', asin>::parse);
-	addNewOperation(3, UOp<'T', atan>::parse);
-	addNewOperation(3, UOp<'l', log>::parse);
+	addNewOperation(3, Op<'^', pow>::parse);
+
+	addNewOperation(4, UOp<'c', cos>::parse);
+	addNewOperation(4, UOp<'s', sin>::parse);
+	addNewOperation(4, UOp<'t', tan>::parse);
+	addNewOperation(4, UOp<'C', tanh>::parse);
+	addNewOperation(4, UOp<'S', asin>::parse);
+
+	addNewOperation(4, UOp<'T', atan>::parse);
+	addNewOperation(4, UOp<'l', log>::parse);
 	addNewOperation(-3, UOp < 'm', mns>::parse);
+
 	addNewOperation(-2, Bracket::parse);
 	addNewOperation(-1, e::parse);
 	addNewOperation(-1, num::parse);
 	addNewOperation(-1, var::parse);
-	equels['c'] = "cos";
-	equels['s'] = "sin";
-	equels['t'] = "tg";
-	equels['C'] = "ctg";
-	equels['S'] = "arcsin";
-	equels['T'] = "arctg";
-	equels['m'] = "-";
-	equels['l'] = "ln";
-	equels['^'] = "**";
+
+	delegates['0'].p = new num;
+	delegates['('].p = new Bracket;
+	delegates['e'].p = new e;
+	delegates['x'].p = new var;
+
+	delegates['+'].p = new  Op<'+',  sum>;
+	delegates['-'].p = new  Op<'-',  dif>;
+	delegates['*'].p = new  Op<'*',  mul>;
+	delegates['/'].p = new  Op<'/',  div>;
+	delegates['^'].p = new  Op<'^',  pow>; equels['^'] = "**";
+
+	delegates['c'].p = new UOp<'c',  cos>; equels['c'] = "cos";
+	delegates['s'].p = new UOp<'s',  sin>; equels['s'] = "sin";
+	delegates['t'].p = new UOp<'t',  tan>; equels['t'] = "tg";
+	delegates['C'].p = new UOp<'C', tanh>; equels['C'] = "ctg";
+	delegates['S'].p = new UOp<'S', asin>; equels['S'] = "arcsin";
+	
+	delegates['T'].p = new UOp<'T', atan>; equels['T'] = "arctg";
+	delegates['m'].p = new UOp<'m',  mns>; equels['m'] = "-";
+	delegates['l'].p = new UOp<'l',  log>; equels['l'] = "ln";
+
 	derivationBin['+'] = [](Node* pointer0, Node* pointer1)->Node*{
 		return new Op<'+', sum>(
 			pointer0->derive(),
@@ -557,8 +636,23 @@ int Node::initialization(){
 		);
 	};
 	derivationBin['^'] = [](Node* pointer0, Node* pointer1)->Node*{
+		if (*pointer1 == '0'){
+			return new Op<'*', mul>(
+				pointer1->copy(),
+				new Op<'*', mul>(
+					pointer0->derive(),
+					new Op<'^', pow>(
+						pointer0->copy(), 
+						new num(((num*)pointer1)->data - 1)
+					)
+				)
+			);
+		}
 		return new Op<'*', mul>(
-			new UOp<'l', log>(pointer0->copy()),
+			(new Op<'*', mul>(
+				pointer1->copy(),
+				new UOp<'l', log>(pointer0->copy())
+			))->derive(),
 			new Op<'^', pow>(
 				new e,
 				new Op<'*', mul>(
@@ -643,6 +737,67 @@ int Node::initialization(){
 	derivationUno['m'] = [](Node* pointer0)->Node*{
 		return new UOp<'m', mns>(pointer0->derive());
 	};
+	simplifictionBin['+'] = [](Node* p0, Node* p1)->Node*{
+		if (*p0 == '0'){
+			if (((num*)p0)->data == 0){ delete p0; return p1; }
+		}
+		if (*p1 == '0'){
+			if (((num*)p1)->data == 0){ delete p1; return p0; }
+		}
+		return 0;
+	};
+	simplifictionBin['-'] = [](Node* p0, Node* p1)->Node*{
+		if (*p0 == '0'){
+			if (((num*)p0)->data == 0){ delete p0; return new UOp<'m', mns>(p1); }
+		}
+		if (*p1 == '0'){
+			if (((num*)p1)->data == 0){ delete p1; return p0; }
+		}
+		return 0;
+	};
+	simplifictionBin['*'] = [](Node* p0, Node* p1)->Node*{
+		if (*p0 == '0'){
+			if (((num*)p0)->data == 0){ delete p0; delete p1; return new num(0); }
+			if (((num*)p0)->data == 1){ delete p0; return p1; }
+		}
+		if (*p1 == '0'){
+			if (((num*)p1)->data == 0){ delete p1; delete p0; return new num(0); }
+			if (((num*)p1)->data == 1){ delete p1; return p0; }
+		}
+		return 0;
+	};
+	simplifictionBin['/'] = [](Node* p0, Node* p1)->Node*{
+		if (*p0 == '0'){
+			if (((num*)p0)->data == 0){ delete p0; delete p1; return new num(0); }
+		}
+		if (*p1 == '0'){
+			if (((num*)p1)->data == 1){ delete p1; return p0; }
+		}
+		return 0;
+	};
+	simplifictionBin['^'] = [](Node* p0, Node* p1)->Node*{ 
+		if (*p1 == '0'){
+			if (((num*)p1)->data == 0){ delete p0; delete p1; return new num(1); }
+			if (((num*)p1)->data == 1){ delete p1; return p0; }
+		}
+		if (*p0 == 'e'){
+			if (*p1 == 'l'){ delete p0; return ((UOp<'l', log>*)p1)->pointer0->copy(); }
+		}
+		return 0; 
+	};
+	simplifictionUno['l'] = [](Node* p0)->Node*{
+		if (*p0 == 'e'){
+			return new num(1);
+		}
+		return 0;
+	};
+	simplifictionUno['c'] = [](Node* p0)->Node*{ return 0; }; //no need
+	simplifictionUno['s'] = [](Node* p0)->Node*{ return 0; };
+	simplifictionUno['t'] = [](Node* p0)->Node*{ return 0; };
+	simplifictionUno['C'] = [](Node* p0)->Node*{ return 0; };
+	simplifictionUno['S'] = [](Node* p0)->Node*{ return 0; };
+	simplifictionUno['T'] = [](Node* p0)->Node*{ return 0; };
+	simplifictionUno['m'] = [](Node* p0)->Node*{ return 0; };
 #if debug
 	deb("initialization ended");
 #endif
@@ -666,11 +821,15 @@ Node* Node::iParse(std::string str){
 	deb("prepocessing: signing:");
 	tab();
 	deb(str);
+	//std::string isExcept(str.size(), ' ');
 #endif
-	bool unoMinusIsExcepted = true;
+	//bool unoMinusIsExcepted = true;
 	for (int i = 0; str[i] != 0; i++){
-		if (!notOperation[str[i]]){ unoMinusIsExcepted = true; } else { if (str[i] != ' ') { unoMinusIsExcepted = false; } }
-		if (str[i] == '-' && unoMinusIsExcepted) { str[i] = 'm'; }
+		//if (!notOperation[str[i]]){ unoMinusIsExcepted = true; } else { if (str[i] != ' ') { unoMinusIsExcepted = false; } }
+#if debug
+		//isExcept[i] = unoMinusIsExcepted ? '|' : '_';
+#endif
+		//if (str[i] == '-' && unoMinusIsExcepted) { str[i] = 'm'; } //It's not a bug, it's a feature
 		change(str, i, "**", '^');
 		change(str, i, "sin", 's');
 		change(str, i, "cos", 'c');
@@ -681,6 +840,7 @@ Node* Node::iParse(std::string str){
 		change(str, i, "ln", 'l');
 	}
 #if debug
+	deb(isExcept);
 	deb(str);
 	untab();
 #endif
@@ -703,7 +863,7 @@ Node* Node::bParse(std::string str){
 		if (str[i] == ')'){ 
 			if (useful.back()){
 				stack[stack.size() - 2] += '@';
-				stack[stack.size() - 2] += itoa(bracketAttach.size());
+				stack[stack.size() - 2] += mak__itoa(bracketAttach.size());
 				bracketAttach.push_back(rParse(stack.back()));
 			}
 			else {
@@ -736,7 +896,7 @@ Node* Node::rParse(std::string str){
 	}
 	if (str[0] == sign){
 #if debug
-		deb("ended as a probe ("+itoa(str.size())+")");
+		deb("ended as a probe ("+mak__itoa(str.size())+")");
 		untab();
 #endif
 		position = str.size(); return 0; 
@@ -791,11 +951,18 @@ int main(){
 		if (!IF){ return 0; }
 		Node* statement = Node::parse(str);
 		if (statement->valid()){
+			//statement->print();
+			//std::cout << "    ";
 			try{
 				Node* derivation = statement->derive();
 				if (derivation->valid()){
-					derivation->print();
-					std::cout << std::endl;
+					try{ 
+						Node* simplified = derivation->simplify();
+						simplified->print();
+						std::cout << std::endl;
+						delete simplified;
+					}
+					catch (...){ std::cout << "simplifiction error"; }
 					delete derivation;
 				}
 				else {
