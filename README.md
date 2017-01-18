@@ -13,7 +13,7 @@ Output file - 'deriv.out': representative derivations for each test (may contain
 
 
 Implemented:
- - Unary op-s: '-' (unary), ln, sin, cos, tg, ctg, arcsin, arctg
+ - Unary op-s: '-' (unary, only output), ln, sin, cos, tg, ctg, arcsin, arctg
  - Binary op-s: '+', '-', '**', '/', '****' ('^')
  - Brackets
  - Сrutches for x^const
