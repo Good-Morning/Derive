@@ -16,3 +16,5 @@ Implemented:
  - Unary op-s: '-' (unary), ln, sin, cos, tg, ctg, arcsin, arctg
  - Binary op-s: '+', '-', '**', '/', '****' ('^')
  - Brackets
+ - Сrutches for x^const
+ - simple simplifications
